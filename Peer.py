@@ -3,19 +3,24 @@
 # Press Double Shift to search everywhere for classes, files,
 # tool windows, actions, and settings.
 from socket import *
-from threading import *
+import threading
 from os import listdir
 from os.path import isfile, join
 
-# this should be changed to be input variables instead
-peer_name = input( "Peer name: " )  # externally provided
-peer_ip = input( "Peer ip: " )  # externally provided
-peer_port = input( "Peer port" )  # externally provided
 
+################################################################################
+################################################################################
+# Threads are not currently executing correctly. i believe this is a fairly
+# simple fix that has to do with the ordering of the thread creation, but I
+# don't have any more energy to do any more of it tonight sadly. Nothing is
+# functional per se, but most of the code structure should be here as a solid
+# framework.
 
 ################################################################################
 ###                  		file table class
 ################################################################################
+# this is intended to store a table containing the file and the originator of
+# the file
 class file_table( dict ):
     # creates a new dict
     def __init__( self ):
@@ -23,40 +28,224 @@ class file_table( dict ):
         self = dict()
 
     # Adds a new entry to the file table (dictionary)
-    def add( self, file, file_origin_peer ):
-        #peer_name, peer_ip, peer_port = file_origin_peer
-        self[ file ] = file_origin_peer
-        #self[ file ] = (peer_name, peer_ip, peer_port)
+    def add( self, file ):
+        # peer_name, peer_ip, peer_port = file_origin_peer
+        self[ file ] = file
+        # self[ file ] = (peer_name, peer_ip, peer_port)
+
+
+class neighbors_table( dict ):
+    # creates a new dict
+    def __init__( self ):
+        super().__init__()
+        self = dict()
+
+    # Adds a new entry to the neighbor table (dictionary)
+    def add( self, neighbor_name, neighbor_ip_port ):
+        self[ neighbor ] = neighbor_ip, neighbor_port
+
 
 ################################################################################
 ###                  		peer class
 ################################################################################
 class peer:
+    def command_menu( self ):
+        while self.active:
+            command = input( "Your options:\n"
+                             "1. [s]tatus\n"
+                             "2. [f]ind <filename>\n"
+                             "3. [g]et <filename> <peer IP> <peer port>\n"
+                             "4. [q]uit\n"
+                             "Your choice:" )
+            if command.len() <= 0:
+                continue;
+
+            if command[ 0 ] == 's':
+                status()
+            elif command[ 0 ] == 'f':
+                find()
+            elif command[ 0 ] == 'g':
+                one = 1
+                # get()
+            elif command[ 0 ] == 'q':
+                print( "Peer terminated" )
+                self.active = False
+                time.sleep( 1 )  # delay to allow allow loops to finish and exit
+                # safely if possible
+                quit()
+                break
+            else:
+                print( "Unknown command" )
+
+    ### this essentially sets up the server-like functions of the peer
+    ### it will be continuously listening for clients (other peers)
+    def setup_listener_sockets( self ):
+        # --------- creates the udp lookup (listener) socket -----------------#
+        self.udp_lookup_socket = socket( AF_INET, SOCK_DGRAM )
+        # there is no connecting (handshaking) with UDP
+        # the binding only needs to occur on the server, not the client
+        self.udp_lookup_socket.bind( (self.peer_ip, self.peer_port) )
+        udp_listener_thread = threading.Thread(
+            target = self.udp_lookup_listener() )
+        udp_listener_thread.start()
+        # ---------------------------------------------------------------------#
+
+        # --------- creates the tcp file transfer socket ----------------------#
+        self.tcp_file_transfer_socket = socket( AF_INET, SOCK_STREAM )
+        # TCP handshaking
+        # the binding only needs to occur on the server, not the client
+        self.tcp_file_transfer_socket.bind( (self.peer_ip, self.peer_port) )
+        self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
+        tcp_listener_thread = threading.Thread(
+            target = self.tcp_file_listener() )
+        tcp_listener_thread.start()
+        # ---------------------------------------------------------------------#
+
     def __init__( self, peer_name, peer_ip, peer_port, directory,
-                  recv_peer_ip, recv_peer_port ):
+                  neighbor_ip = None, neighbor_port = None ):
         self.peer_name = peer_name
         self.peer_ip = peer_ip
         self.peer_port = peer_port
         self.directory = directory
+
         self.files = file_table()
+        self.neighbors = neighbors_table()
         self.read_directory()
-        self.lookup_port = peer_port
 
-        name = peer_name  # this peer's name
-        port = 12000
-        # signals to socket that we are going to be using UDP
-        udp_socket = socket( AF_INET, SOCK_DGRAM )
-        udp_socket.connect( (name, port) )
+        self.active = True
+        self.udp_lookup_socket = None
+        self.tcp_file_transfer_socket = None
 
-        tcp_socket = socket( AF_INET, SOCK_STREAM )
-        tcp_socket.connect( (name, port) )
+        # command_interface = threading.Thread( target = self.command_menu )
+        # command_interface.start()
 
-        if recv_peer_ip is None or recv_peer_port is None:
-            recv_peer_ip = -1
-            recv_peer_port = -1
-            self.file_transfer_port = 12000
-        else:
-            self.file_transfer_port = self.lookup_port + 1
+        self.lookup_port = peer_port  # this is our UDP port
+        self.file_transfer_port = self.lookup_port + 1  # TCP port
+
+        self.setup_listener_sockets()  # sets up the tcp/udp listener sockets
+
+        if neighbor_ip is not None and neighbor_port is not None:
+            self.add_neighbor( neighbor_ip, neighbor_port )
+
+        self.command_menu()
+
+    ############################################################################
+    ###                  	establish neighbor connection
+    ############################################################################
+    def add_neighbor( self, neighbor_ip, neighbor_port ):
+        udp_ephemeral = socket( AF_INET, SOCK_DGRAM )
+        # I think this line only gets used in UDP               FIXME:*******
+        udp_ephemeral.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
+        # tcp.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )  ******* REMOVE
+        # udp_ephemeral.listen( 256 )  # connections queue size
+
+        try:
+            new_neighbor_request = self.create_response( 1, self.peer_name,
+                                                         self.peer_ip,
+                                                         self.peer_port )
+            udp_ephemeral.sentto( new_neighbor_request,
+                                  (neighbor_ip, neighbor_port) )
+
+            # will receive a name of 256 characters
+            neighbor_response, addr = udp_ephemeral.recvfrom( 256 )
+
+            # add the neighbor response to the neighbors dictionary
+            self.neighbors.add( neighbor_response.decode(),
+                                (neighbor_ip, neighbor_port) )
+        except Exception as error:
+            print( "\tA unknown critical error occurred" )
+            print( "\t" + str( error ) + "\n"
+                   + traceback.format_exc() + "\n" )
+        finally:
+            udp_ephemeral.close()
+
+    ############################################################################
+    ###                 listens for incoming lookup requests
+    ############################################################################
+    def udp_lookup_listener( self ):
+        while self.active:
+            try:
+                print( "\t[UDP THREAD ACTIVE]" )
+
+                # do NOT have to accept since we are using UDP... I believe
+                thread = threading.Thread( target = self.udp_lookup_handler,
+                                           args = \
+                                               self.udp_lookup_socket \
+                                           .recvfrom( 256 ) )
+                thread.start()  # starts the thread, start() calls run()
+
+                # print( "\t[Client accepted @ " + str(
+                #     datetime.now().time() ) + "  -  Total Clients: " + str(
+                #     num_clients ) + "]" )
+            except Exception as error:
+                print( "\tA unknown critical error occurred" )
+                print( "\t" + str( error ) + "\n"
+                       + traceback.format_exc() + "\n" )
+                raise Exception()
+
+    def udp_lookup_handler( self, byte_str, sender_ip ):
+        # UDP needs to have enough space in the buffer to receive, otherwise
+        # the packet will be dropped
+        try:
+            # (byte_str, sender_ip) = self.udp_lookup_socket.recvfrom( 4096
+            # ).decode()
+            # data is the byte string
+            if True:
+                print( "Test successfull" )
+                return "Test successfull"
+
+            action_code, name, ip, port = self.read_lookup_response( byte_str )
+
+            if action_code != -1:
+                return "Test successful"
+
+            ### implement response logic here... ###
+
+            # then use socket.sentto( msg, sender_up ) to respond
+
+            # don't need to close with UDP?
+        except Exception as error:
+            print( "\n\tA unknown critical error occurred" )
+            print(
+                "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
+        finally:
+            self.udp_lookup_socket.close()
+
+    ############################################################################
+    ###              listens for incoming file transfer requests
+    ############################################################################
+    def tcp_file_listener( self ):
+        while self.active:
+            try:
+                print( "\t[TCP THREAD ACTIVE]" )
+
+                # have to accept() since we are using TCP
+                thread = threading.Thread( target = self.tcp_file_handler,
+                                           args =
+                                           self.tcp_file_transfer_socket.accept() )
+                thread.start()  # starts the thread, start() calls run()
+
+                # print( "\t[Client accepted @ " + str(
+                #     datetime.now().time() ) + "  -  Total Clients: " + str(
+                #     num_clients ) + "]" )
+            except Exception as error:
+                print( "\tA unknown critical error occurred" )
+                print( "\t" + str( error ) + "\n"
+                       + traceback.format_exc() + "\n" )
+
+    def tcp_file_handler( self, tcp_socket, incoming_ip ):
+        try:
+            byte_string = tcp_socket.recv( 4096 ).decode()
+
+        except Exception as error:
+            print( "\tA unknown critical error occurred" )
+            print(
+                "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
+        finally:
+            tcp_socket.close()
+
+    def status( self ):
+        return self.neighbors, self.files
 
     def send_file( peer_name, peer_ip, peer_port, directory, recv_peer_ip,
                    recv_peer_port ):
@@ -66,20 +255,67 @@ class peer:
             recv_peer_port = -1
         one = 1
 
-    # lookup_port is UDP,  file_transfer_port is TCP
-    # code needs  lookup_port = lookup_port + 1
-    def receive( lookup_port, file_transfer_port ):
-        two = 1
-
     def read_directory( self ):
-        dir_files = [ f for f in listdir( self.directory ) if isfile(join(
-                self.directory, f))]
+        # dir_files = [ f for f in listdir( self.directory ) if isfile( join(
+        #     self.directory, f ) ) ]
+        dir_files = { "test1.txt", "test2.txt" }
+
         for file in dir_files:
-            self.files.add( file,
-                            (self.peer_name, self.peer_ip, self.peer_port) )
+            self.files.add( file )
 
     def get_files( self ):
         return self.files
 
-    def add_file( self, file, file_origin_peer  ):
+    def add_file( self, file, file_origin_peer ):
         self.files.add( self, file, file_origin_peer )
+
+    def create_response( self, code, name, ip, port ):
+        return "code={0} name={1} ip={2} port={3}\0".format(
+            code, name, ip, port ).encode()
+
+    def read_lookup_response( self, response_message ):
+        msg = response_message.decode()
+        field_names = { "code=", "name=", "ip=", "port=" }
+        field_values = { }
+        i = 0;
+
+        # if this is true, then the data has to be incorrect
+        if msg.len() <= 21:
+            raise Error( "Received message is incomplete or corrupted" )
+
+        while i < field_names.__sizeof__() - 1 \
+                and msg.index( fields[ i ] ) > -1:
+            start = msg.index( field_names[ i ] ) + field_names[ i ].len()
+            end = msg.index( field_names[ i + 1 ] ) + field_names[ i + 1 ].len()
+
+            if start >= msg.len() or end < 0:
+                raise Error( "Received message is incomplete or corrupted" )
+
+            field_values[ i ] = msg[ start: end ]
+
+            i += 1
+        action_code = int( field_values[ 0 ] )
+        name = str( field_values[ 1 ] )
+        ip = str( field_values[ 2 ] )
+        port = int( field_values[ 3 ] )
+
+        return action_code, name, ip, port
+
+    def quit( self ):
+
+        # needs to send messages to neighbors and attempt to close threads
+        # safely
+
+        self.udp_lookup_socket.close()
+        self.tcp_file_transfer_socket.close()
+
+
+################################################################################
+################################ main ##########################################
+################################################################################
+
+my_peer = peer( "A", "localhost", 2222, "p3/files" )
+
+################################################################################
+############################## end main ########################################
+###############################################################################
