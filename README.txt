@@ -1,1 +1,1 @@
-Rudy <LAST NAME> & Thomas Pelegrin
+Rudy Liljeberg & Thomas Pelegrin
