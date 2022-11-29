@@ -87,8 +87,8 @@ class peer:
         # the binding only needs to occur on the server, not the client
         self.udp_lookup_socket.bind( (self.peer_ip, self.peer_port) )
         udp_listener_thread = threading.Thread(
-            target = self.udp_lookup_listener )
-        udp_listener_thread.daemon = True
+            target = self.udp_lookup_listener, daemon = True )
+        # udp_listener_thread.daemon = True
         # udp_listener_thread.setDaemon( True )                     FIXME:
         udp_listener_thread.start()
         # ---------------------------------------------------------------------#
@@ -100,8 +100,8 @@ class peer:
         self.tcp_file_transfer_socket.bind( (self.peer_ip, self.peer_port) )
         self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
         tcp_listener_thread = threading.Thread(
-            target = self.tcp_file_listener )
-        tcp_listener_thread.daemon = True
+            target = self.tcp_file_listener, daemon = True )
+        # tcp_listener_thread.daemon = True
         # tcp_listener_thread.setDaemon( True )                     FIXME:
 
         tcp_listener_thread.start()
@@ -172,15 +172,15 @@ class peer:
             try:
                 pass  # placeholder
                 # do NOT have to accept since we are using UDP... I believe
-                # thread = threading.Thread( target = self.udp_lookup_handler,
-                #                            args = \
-                #                                self.udp_lookup_socket \
-                #                            .recvfrom( 256 ) )
-                # thread.start()  # starts the thread, start() calls run()
+                thread = threading.Thread( target = self.udp_lookup_handler,
+                                           args = \
+                                               self.udp_lookup_socket \
+                                           .recvfrom( 256 ) )
+                thread.start()  # starts the thread, start() calls run()
 
-                # print( "\t[Client accepted @ " + str(
-                #     datetime.now().time() ) + "  -  Total Clients: " + str(
-                #     num_clients ) + "]" )
+                print( "\t[Client accepted @ " + str(
+                    datetime.now().time() ) + "  -  Total Clients: " + str(
+                    num_clients ) + "]" )
             except Exception as error:
                 print( "\tA unknown critical error occurred" )
                 print( "\t" + str( error ) + "\n"
@@ -252,7 +252,7 @@ class peer:
     def status( self ):
         return self.neighbors, self.files
 
-    def send_file( peer_name, peer_ip, peer_port, directory, recv_peer_ip,
+    def send_file( self, peer_name, peer_ip, peer_port, directory, recv_peer_ip,
                    recv_peer_port ):
         if recv_peer_ip is None:
             recv_peer_ip = -1
@@ -282,7 +282,7 @@ class peer:
         msg = response_message.decode()
         field_names = { "code=", "name=", "ip=", "port=" }
         field_values = { }
-        i = 0;
+        i = 0
 
         # if this is true, then the data has to be incorrect
         if len( msg ) <= 21:
@@ -308,10 +308,8 @@ class peer:
         return action_code, name, ip, port
 
     def quit( self ):
-
         # needs to send messages to neighbors and attempt to close threads
         # safely
-
         self.udp_lookup_socket.close()
         self.tcp_file_transfer_socket.close()
 
@@ -319,12 +317,9 @@ class peer:
 ################################################################################
 ################################ main ##########################################
 ################################################################################
-
-my_peer = peer( sys.argv[ 1 ], sys.argv[ 2 ], int(sys.argv[ 3 ]),
+# my_peer = peer( "A", "localhost", 2222, "p3/files" )
+my_peer = peer( sys.argv[ 1 ], sys.argv[ 2 ], int( sys.argv[ 3 ] ),
                 sys.argv[ 4 ] )
-
-# my_peer = peer( sys.argv[1], "localhost", 2222, "p3/files" )
-
 ################################################################################
 ############################## end main ########################################
-################################################################################
+###############################################################################
