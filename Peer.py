@@ -6,6 +6,7 @@ from os import listdir
 from os.path import isfile, join
 from datetime import datetime
 
+
 ################################################################################
 ################################################################################
 # TODO: ========================================================================
@@ -14,7 +15,6 @@ from datetime import datetime
 ## things I wrote down because I thought they might be important to me later
 ##       * we need to store the IP and source port to identify UDP connection
 ##       * we need the srcport, destport, srcip, destip
-
 
 ################################################################################
 ###                  		file table class
@@ -89,8 +89,7 @@ class peer:
         udp_listener_thread = threading.Thread(
             target = self.udp_lookup_listener )
         udp_listener_thread.daemon = True
-        # udp_listener_thread.setDaemon( True )
-
+        # udp_listener_thread.setDaemon( True )                     FIXME:
         udp_listener_thread.start()
         # ---------------------------------------------------------------------#
 
@@ -103,7 +102,7 @@ class peer:
         tcp_listener_thread = threading.Thread(
             target = self.tcp_file_listener )
         tcp_listener_thread.daemon = True
-        # tcp_listener_thread.setDaemon( True )
+        # tcp_listener_thread.setDaemon( True )                     FIXME:
 
         tcp_listener_thread.start()
         # ---------------------------------------------------------------------#
@@ -171,7 +170,7 @@ class peer:
 
         while self.active:
             try:
-                pass        # placeholder
+                pass  # placeholder
                 # do NOT have to accept since we are using UDP... I believe
                 # thread = threading.Thread( target = self.udp_lookup_handler,
                 #                            args = \
@@ -293,7 +292,7 @@ class peer:
                 and msg.index( fields[ i ] ) > -1:
             start = len( msg.index( field_names[ i ] ) + field_names[ i ] )
             end = len( msg.index( field_names[ i + 1 ] ) + field_names[ i + 1
-            ] )
+                                                                        ] )
 
             if start >= len( msg ) or end < 0:
                 raise Error( "Received message is incomplete or corrupted" )
@@ -321,8 +320,11 @@ class peer:
 ################################ main ##########################################
 ################################################################################
 
-my_peer = peer( "A", "localhost", 2222, "p3/files" )
+my_peer = peer( sys.argv[ 1 ], sys.argv[ 2 ], int(sys.argv[ 3 ]),
+                sys.argv[ 4 ] )
+
+# my_peer = peer( sys.argv[1], "localhost", 2222, "p3/files" )
 
 ################################################################################
 ############################## end main ########################################
-###############################################################################
+################################################################################
