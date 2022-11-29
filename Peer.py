@@ -295,8 +295,9 @@ class peer:
 
         while i < field_names.__sizeof__() - 1 \
                 and msg.index( fields[ i ] ) > -1:
-            start = msg.index( field_names[ i ] ) + field_names[ i ].len()
-            end = msg.index( field_names[ i + 1 ] ) + field_names[ i + 1 ].len()
+            start = len( msg.index( field_names[ i ] ) + field_names[ i ] )
+            end = len( msg.index( field_names[ i + 1 ] ) + field_names[ i + 1
+            ] )
 
             if start >= len( msg ) or end < 0:
                 raise Error( "Received message is incomplete or corrupted" )
