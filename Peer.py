@@ -437,7 +437,7 @@ class Peer:
 
 	# REMOVE ME: this is for testing
 	def print_ports( self, name, lookup, ephemeral, message ):
-		print( self.name.strip() + " received " + name + "'s response:" )
+		print( self.name + " received " + name + "'s response:" )
 		print( "\t" + name + " lookup port: " + str( lookup ) )
 		print( "\t" + name + " ephemeral port: " + str( ephemeral ) )
 		print( "\t" + name + " message: " + message  + "\n")
