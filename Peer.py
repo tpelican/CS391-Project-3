@@ -2,19 +2,24 @@
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files,
 # tool windows, actions, and settings.
-from socket import *
 import threading
+import traceback
+import sys, time
+from socket import *
 from os import listdir
 from os.path import isfile, join
-
+from datetime import datetime
 
 ################################################################################
 ################################################################################
-# Threads are not currently executing correctly. i believe this is a fairly
-# simple fix that has to do with the ordering of the thread creation, but I
-# don't have any more energy to do any more of it tonight sadly. Nothing is
-# functional per se, but most of the code structure should be here as a solid
-# framework.
+
+# TODO: ========================================================================
+#  - need to update the README.txt file once we are done
+
+## things I wrote down because I thought they might be important to me later
+##       * we need to store the IP and source port to identify UDP connection
+##       * we need the srcport, destport, srcip, destip
+
 
 ################################################################################
 ###                  		file table class
@@ -56,9 +61,10 @@ class peer:
                              "2. [f]ind <filename>\n"
                              "3. [g]et <filename> <peer IP> <peer port>\n"
                              "4. [q]uit\n"
-                             "Your choice:" )
-            if command.len() <= 0:
-                continue;
+                             "Your choice: " )
+            command = str( command )
+            if len( command ) <= 0:
+                continue
 
             if command[ 0 ] == 's':
                 status()
@@ -86,8 +92,11 @@ class peer:
         # the binding only needs to occur on the server, not the client
         self.udp_lookup_socket.bind( (self.peer_ip, self.peer_port) )
         udp_listener_thread = threading.Thread(
-            target = self.udp_lookup_listener() )
+            target = self.udp_lookup_listener )
+        udp_listener_thread.setDaemon( True )
+
         udp_listener_thread.start()
+
         # ---------------------------------------------------------------------#
 
         # --------- creates the tcp file transfer socket ----------------------#
@@ -97,7 +106,9 @@ class peer:
         self.tcp_file_transfer_socket.bind( (self.peer_ip, self.peer_port) )
         self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
         tcp_listener_thread = threading.Thread(
-            target = self.tcp_file_listener() )
+            target = self.tcp_file_listener )
+        tcp_listener_thread.setDaemon( True )
+
         tcp_listener_thread.start()
         # ---------------------------------------------------------------------#
 
@@ -115,9 +126,6 @@ class peer:
         self.active = True
         self.udp_lookup_socket = None
         self.tcp_file_transfer_socket = None
-
-        # command_interface = threading.Thread( target = self.command_menu )
-        # command_interface.start()
 
         self.lookup_port = peer_port  # this is our UDP port
         self.file_transfer_port = self.lookup_port + 1  # TCP port
@@ -163,16 +171,17 @@ class peer:
     ###                 listens for incoming lookup requests
     ############################################################################
     def udp_lookup_listener( self ):
+        print( "\t[UDP THREAD ACTIVE]\n" )
+
         while self.active:
             try:
-                print( "\t[UDP THREAD ACTIVE]" )
-
+                pass        # placeholder
                 # do NOT have to accept since we are using UDP... I believe
-                thread = threading.Thread( target = self.udp_lookup_handler,
-                                           args = \
-                                               self.udp_lookup_socket \
-                                           .recvfrom( 256 ) )
-                thread.start()  # starts the thread, start() calls run()
+                # thread = threading.Thread( target = self.udp_lookup_handler,
+                #                            args = \
+                #                                self.udp_lookup_socket \
+                #                            .recvfrom( 256 ) )
+                # thread.start()  # starts the thread, start() calls run()
 
                 # print( "\t[Client accepted @ " + str(
                 #     datetime.now().time() ) + "  -  Total Clients: " + str(
@@ -215,19 +224,20 @@ class peer:
     ###              listens for incoming file transfer requests
     ############################################################################
     def tcp_file_listener( self ):
+        print( "\t[TCP THREAD ACTIVE]\n" )
+
         while self.active:
             try:
-                print( "\t[TCP THREAD ACTIVE]" )
-
+                pass
                 # have to accept() since we are using TCP
                 thread = threading.Thread( target = self.tcp_file_handler,
                                            args =
                                            self.tcp_file_transfer_socket.accept() )
                 thread.start()  # starts the thread, start() calls run()
 
-                # print( "\t[Client accepted @ " + str(
-                #     datetime.now().time() ) + "  -  Total Clients: " + str(
-                #     num_clients ) + "]" )
+                print( "\t[Client accepted @ " + str(
+                    datetime.now().time() ) + "  -  Total Clients: " + str(
+                    num_clients ) + "]" )
             except Exception as error:
                 print( "\tA unknown critical error occurred" )
                 print( "\t" + str( error ) + "\n"
@@ -280,7 +290,7 @@ class peer:
         i = 0;
 
         # if this is true, then the data has to be incorrect
-        if msg.len() <= 21:
+        if len( msg ) <= 21:
             raise Error( "Received message is incomplete or corrupted" )
 
         while i < field_names.__sizeof__() - 1 \
@@ -288,7 +298,7 @@ class peer:
             start = msg.index( field_names[ i ] ) + field_names[ i ].len()
             end = msg.index( field_names[ i + 1 ] ) + field_names[ i + 1 ].len()
 
-            if start >= msg.len() or end < 0:
+            if start >= len( msg ) or end < 0:
                 raise Error( "Received message is incomplete or corrupted" )
 
             field_values[ i ] = msg[ start: end ]
