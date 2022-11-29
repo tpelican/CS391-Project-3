@@ -1,7 +1,3 @@
-# This is a sample Python script.
-# Press Shift+F10 to execute it or replace it with your code.
-# Press Double Shift to search everywhere for classes, files,
-# tool windows, actions, and settings.
 import threading
 import traceback
 import sys, time
@@ -12,7 +8,6 @@ from datetime import datetime
 
 ################################################################################
 ################################################################################
-
 # TODO: ========================================================================
 #  - need to update the README.txt file once we are done
 
@@ -93,10 +88,10 @@ class peer:
         self.udp_lookup_socket.bind( (self.peer_ip, self.peer_port) )
         udp_listener_thread = threading.Thread(
             target = self.udp_lookup_listener )
-        udp_listener_thread.setDaemon( True )
+        udp_listener_thread.daemon = True
+        # udp_listener_thread.setDaemon( True )
 
         udp_listener_thread.start()
-
         # ---------------------------------------------------------------------#
 
         # --------- creates the tcp file transfer socket ----------------------#
@@ -107,7 +102,8 @@ class peer:
         self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
         tcp_listener_thread = threading.Thread(
             target = self.tcp_file_listener )
-        tcp_listener_thread.setDaemon( True )
+        tcp_listener_thread.daemon = True
+        # tcp_listener_thread.setDaemon( True )
 
         tcp_listener_thread.start()
         # ---------------------------------------------------------------------#
