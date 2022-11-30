@@ -1,459 +1,458 @@
 import threading
 import traceback
 import sys, time, os
+import Message_Table, Neighbor_Table, File_Table
+import Udp_Message, Codes
 from socket import *
+from Message_Table import Message_Table
+from Neighbor_Table import Neighbor_Table
+from File_Table import File_Table
+from Udp_Message import *
+from Codes import Codes
 from os.path import isfile, join
 from datetime import datetime
-
+from enum import Enum
 
 ################################################################################
 ################################################################################
 # TODO: ========================================================================
 #  - need to update the README.txt file once we are done
-#  - a lot of this should probably be refactored into different files, but I'm
-#       leaving it as is right now because it's easier to work with atm
+#  - I started working on the find method, not much is done, but almost all
+#  of the pieces that are needed to do it are here already
+#  - imports need to be cleaned up
+#  - I'm note really sure what exactly the sequence number we need to have is
+#   doing exactly -- seems pointless but meh I guess
 
 # NOTE: ========================================================================
-#  - when printing print("") it will by default print a new line, so doing
-#		print("\n") will print 2 new lines etc
-
-# MESSAGE FORMAT:  code={0} name={1} ip={2} port={3}
-# Action Codes:                                         (for now)
-#   0 - error
-#   1 - add peer
-#   2 - file inquiry request
-#   3 - file download request
-
-################################################################################
-###                  		file table class
-################################################################################
-class File_Table( dict ):
-	def __init__( self ):
-		""" Creates a new File_Table dictionary
-		"""
-		super().__init__()
-		self = dict()
-
-	def add( self, file, origin_peer ):
-		""" Adds a new File key-value pair
-		:param file: the name of the file
-		:param origin_peer: the peer this file is from
-		:return: m/a
-		"""
-		self[ file ] = file, origin_peer
-
-
-################################################################################
-###                  	  Neighbors table class
-################################################################################
-class Neighbor_Table( dict ):
-	def __init__( self ):
-		""" Creates a new Neighbor_Table dictionary
-		"""
-		super().__init__()
-		self = dict()
-
-	def add( self, peer_name, peer_ip, peer_port ):
-		""" Adds a new Neighbor key-value pair
-		:param peer_name: the name of the neighboring peer
-		:param peer_ip: the ip of the neighboring peer
-		:param peer_port: the lookup port of the neighboring peer
-		:return: n/a
-		"""
-		self[ peer_name ] = peer_ip, peer_port
+#  - I reworked the way that the UDP messages are sent back and forth. This
+#  should make our lives a lot easier because we just need to create a
+#  Udp_Message object now, pass in the arguments we need to send, and then do
+#  msg.send()   -- let me know if there are any bugs with it
 
 
 ################################################################################
 ###                  		Peer class
 ################################################################################
 class Peer:
-	def command_menu( self ):
-		""" Executes the command menu's logic
-		:return: n/a
-		"""
-		while self.active:
-			self.print_command_menu()
-			command = str( input() )
-			print("")				# prints a blank line
 
-			if len( command ) <= 0:
-				print("No command listed.")
-				continue
+    def __init__( self, name, ip, port, directory, peer_ip = None,
+                  peer_port = None ):
+        """ Creates a new Peer object
+        :param name: the name of this Peer object
+        :param ip: the ip of this Peer object
+        :param port: the port of this Peer object
+        :param directory: the directory of this Peer object
+        :param peer_ip: the ip of a neighbor peer (a Peer object's peer)
+        :param peer_port: the port of a neighbor peer (a Peer object's peer)
+        """
+        self.name = name
+        self.ip = ip
+        self.port = port
+        self.directory = directory
 
-			if command[ 0 ] == 's':
-				self.status()
-			elif command[ 0 ] == 'f':
-				self.find()
-			elif command[ 0 ] == 'g':
-				one = 1  # get()
-			elif command[ 0 ] == 'q':
-				print( "Peer terminated" )
-				self.active = False
-				time.sleep( 1 )  # delay to allow loops to finish and exit
-				# safely if possible
-				quit()
-				break
-			else:
-				print( "Unknown command" )
+        self.files = File_Table()
+        self.neighbors = Neighbor_Table()
+        self.file_requests = Message_Table()
+        self.read_directory()
 
-	def print_command_menu( self ):
-		""" Prints the command menu UI
-		:return: n/a
-		"""
-		print( "Your options:\n"
-			   "\t1. [s]tatus\n"
-			   "\t2. [f]ind <filename>\n"
-			   "\t3. [g]et <filename> <peer IP> <peer port>\n"
-			   "\t4. [q]uit\n"
-			   "Your choice: ", end = "" )
+        self.active = True
+        self.udp_lookup_socket = None
+        self.tcp_file_transfer_socket = None
 
-	def setup_listener_sockets( self ):
-		""" Sets up the udp lookup and tcp file transfer sockets
-		:return: n/a
-		"""
-		# --------- creates the udp lookup (listener) socket -----------------#
-		self.udp_lookup_socket = socket( AF_INET, SOCK_DGRAM )
-		# there is no connecting (handshaking) with UDP
-		# the binding only needs to occur on the server, not the client
-		# here we set the binding because we want a static port
-		self.udp_lookup_socket.bind( (self.ip, self.port) )
-		threading.Thread( target = self.udp_lookup_listener,
-			daemon = True ).start()
-		# ---------------------------------------------------------------------#
+        self.lookup_port = port  # this is our UDP port
+        self.file_transfer_port = self.lookup_port + 1  # TCP port
 
-		# --------- creates the tcp file transfer socket
-		# ----------------------#
-		self.tcp_file_transfer_socket = socket( AF_INET, SOCK_STREAM )
-		# TCP handshaking
-		# the binding only needs to occur on the server, not the client
-		self.tcp_file_transfer_socket.bind( (self.ip, self.port) )
-		self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
-		threading.Thread( target = self.tcp_file_listener,
-			daemon = True ).start()  #
+        self.setup_listener_sockets()  # sets up the tcp/udp listener sockets
 
-	# ---------------------------------------------------------------------#
+        if peer_ip is not None and peer_port is not None:
+            self.connect_to_neighbor( peer_ip, peer_port )
 
-	def __init__( self, name, ip, port, directory, peer_ip = None,
-			peer_port = None ):
-		""" Creates a new Peer object
-		:param name: the name of this Peer object
-		:param ip: the ip of this Peer object
-		:param port: the port of this Peer object
-		:param directory: the directory of this Peer object
-		:param peer_ip: the ip of a neighbor peer (a Peer object's peer)
-		:param peer_port: the port of a neighbor peer (a Peer object's peer)
-		"""
-		self.name = name
-		self.ip = ip
-		self.port = port
-		self.directory = directory
+        self.command_menu()
 
-		self.files = File_Table()
-		self.neighbors = Neighbor_Table()
-		self.read_directory()
+    def setup_listener_sockets( self ):
+        """ Sets up the udp lookup and tcp file transfer sockets
+        :return: n/a
+        """
+        # --------- creates the udp lookup (listener) socket -----------------#
+        self.udp_lookup_socket = socket( AF_INET, SOCK_DGRAM )
+        # there is no connecting (handshaking) with UDP
+        # the binding only needs to occur on the server, not the client
+        # here we set the binding because we want a static port
+        self.udp_lookup_socket.bind( (self.ip, self.port) )
+        threading.Thread( target = self.udp_lookup_listener,
+                          daemon = True ).start()
+        # ---------------------------------------------------------------------#
 
-		self.active = True
-		self.udp_lookup_socket = None
-		self.tcp_file_transfer_socket = None
+        # --------- creates the tcp file transfer socket
+        # ----------------------#
+        self.tcp_file_transfer_socket = socket( AF_INET, SOCK_STREAM )
+        # TCP handshaking
+        # the binding only needs to occur on the server, not the client
+        self.tcp_file_transfer_socket.bind( (self.ip, self.port) )
+        self.tcp_file_transfer_socket.listen( 256 )  # connections queue size
+        threading.Thread( target = self.tcp_file_listener,
+                          daemon = True ).start()  #
 
-		self.lookup_port = port  # this is our UDP port
-		self.file_transfer_port = self.lookup_port + 1  # TCP port
+    ############################################################################
+    ###                  	establish neighbor connection
+    ############################################################################
+    def connect_to_neighbor( self, peer_ip, peer_port ):
+        try:
+            request = Udp_Message( code = Codes.PEER, src_name = self.name,
+                                   src_ip = self.ip, src_port = self.port,
+                                   dest_ip = peer_ip, dest_port = peer_port )
+            response = request.send( accept_reply = True )
+            peer_name = response.get_name()
 
-		self.setup_listener_sockets()  # sets up the tcp/udp listener sockets
+            # FIXME: remove this -- for testing
+            self.print_ports( self.name, self.port, response.get_name(),
+                              response.get_msg_content() )
 
-		if peer_ip is not None and peer_port is not None:
-			self.connect_to_neighbor( peer_ip, peer_port )
+            # add the neighbor response to the neighbors dictionary
+            self.add_neighbor( peer_name, peer_ip, peer_port )
+            self.print_connection_msg( peer_name, peer_ip, peer_port )
 
-		self.command_menu()
+        except Exception as error:
+            print( "\tA unknown critical error occurred" )
+            print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
 
-	############################################################################
-	###                  	establish neighbor connection
-	############################################################################
-	def connect_to_neighbor( self, peer_ip, peer_port ):
-		udp_ephemeral = socket( AF_INET, SOCK_DGRAM )
+    # adds a neighbor to the neighbor dictionary
+    def add_neighbor( self, peer_name, peer_ip, peer_port ):
+        self.neighbors.add( peer_name, peer_ip, peer_port, 0)
 
-		# I don't think this method needs to be on its own thread since it
-		# only executes once
-		# I think this line only gets used in TCP               FIXME:*******
-		udp_ephemeral.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
+    ############################################################################
+    ###                 listens for incoming lookup requests
+    ############################################################################
+    def udp_lookup_listener( self ):
+        """ Starts the lookup listener logic
+        :return: n/a
+        """
+        print( "\t[UDP THREAD ACTIVE]\n" )
 
-		# tcp.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )  ******* REMOVE
-		# udp_ephemeral.listen( 256 )  # connections queue size
-		try:
-			new_neighbor_request = self.create_response( 1, self.name, self.ip,
-				self.port )
-			udp_ephemeral.sendto( new_neighbor_request.encode(),
-				(peer_ip, peer_port) )
+        while self.active:
+            try:
+                pass  # placeholder
+                # do NOT have to accept since we are using UDP... I believe
+                thread = threading.Thread( target = self.udp_lookup_handler,
+                                           args =
+                                           self.udp_lookup_socket.recvfrom(
+                                               2048 ) )
+                thread.start()  # starts the thread, start() calls run()
 
-			# will receive a name of 256 characters, we only need to receive
-			# the name here since that's all that needs to be sent at this
-			# stage
-			peer_name, addr = udp_ephemeral.recvfrom( 2048 )
+            except Exception as error:
+                print( "\tA unknown critical error occurred" )
+                print(
+                    "\t" + str( error ) + "\n" + traceback.format_exc() +
+                    "\n" )
+                raise Exception()  # FIXME:
 
-			# FIXME: remove this -- for testing
-			self.print_ports( peer_name.decode(), peer_port, str( addr[ 1 ] ),
-				peer_name.decode() )
+    def udp_lookup_handler( self, request, addr ):
+        """ Handles the interactions coming in on the lookup port
+        :param request: the sending Peer's message
+        :param addr: the sending Peer's (ip, port) as tuple
+        :return: n/a
+        """
+        try:
+            # this is the message we got from the sender
+            sender_msg = Udp_Message( response_msg = request.decode() )
+            action_code = sender_msg.action_code()
 
-			# add the neighbor response to the neighbors dictionary
-			self.add_neighbor( peer_name.decode(), peer_ip, peer_port )
-			self.print_connection_msg( peer_name.decode(), peer_ip, peer_port )
+            if action_code is Codes.ERROR:
+                pass
+            elif action_code is Codes.PEER:             # ACK
+                self.peer_request_handler( sender_msg, addr )
+            elif action_code is Codes.FIND:
+                self.find_request_handler( sender_msg, addr )
+            elif action_code is Codes.HERE:
+                pass
+            elif action_code is Codes.GET:
+                pass
+            elif action_code is Codes.QUIT:
+                pass
+            else:
+                pass
+        except Exception as error:
+            print( "\n\tA unknown critical error occurred" )
+            print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
+        finally:
+            self.print_command_menu()
 
-		except Exception as error:
-			print( "\tA unknown critical error occurred" )
-			print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
-		finally:
-			udp_ephemeral.close()
-			return
+    def peer_request_handler( self, sender_msg, addr ):
+        # this is the resposne we are sending back to the sender
+        response = Udp_Message( code = Codes.PEER, src_name = self.name,
+                                src_ip = self.ip, src_port = self.port,
+                                dest_ip = addr[ 0 ],
+                                dest_port = addr[ 1 ] )
+        self.add_neighbor( sender_msg.get_name(),
+                           sender_msg.get_src_ip(),
+                           sender_msg.get_src_port() )
+        self.print_acceptance_msg( sender_msg.get_name(),
+                                   sender_msg.get_src_ip(),
+                                   sender_msg.get_src_port() )
+        response.send()
 
-	# adds a neighbor to the neighbor dictionary
-	def add_neighbor( self, peer_name, peer_ip, peer_port ):
-		self.neighbors.add( peer_name, peer_ip, peer_port )
+    def find_request_handler( self, sender_msg, addr ):
+        if self.file_requests.__contains__( ( sender_msg.get_name(),
+                                              sender_msg.seq ) ):
+            print( "File request {0} received from {1}\n".format(
+                sender_msg.file, sender_msg.get_name() ) )
+            print("Duplicate; discarding.")
+            return
 
-	############################################################################
-	###                 listens for incoming lookup requests
-	############################################################################
-	def udp_lookup_listener( self ):
-		""" Starts the lookup listener logic
-		:return: n/a
-		"""
-		print( "\t[UDP THREAD ACTIVE]\n" )
+        response = Udp_Message( code = Codes.PEER, src_name = self.name,
+                                src_ip = self.ip, src_port = self.port,
+                                dest_ip = addr[ 0 ],
+                                dest_port = addr[ 1 ] )
 
-		while self.active:
-			try:
-				pass  # placeholder
-				# do NOT have to accept since we are using UDP... I believe
-				thread = threading.Thread( target = self.udp_lookup_handler,
-					args = self.udp_lookup_socket.recvfrom( 256 ) )
-				thread.start()  # starts the thread, start() calls run()
+        self.read_directory()       # gets the most current directory
+        if self.files.__contains__( sender_msg.file ):
+            pass
+        else:
+            self.flood_peers( sender_msg.get_filename() )
 
-			except Exception as error:
-				print( "\tA unknown critical error occurred" )
-				print(
-					"\t" + str( error ) + "\n" + traceback.format_exc() +
-					"\n" )
-				raise Exception()  # FIXME:
 
-	def udp_lookup_handler( self, sender_msg, sender_address ):
-		""" Handles the interactions coming in on the lookup port
-		:param sender_msg: the sending Peer's message
-		:param sender_address: the sending Peer's ip
-		:return: n/a
-		"""
-		# UDP needs to have enough space in the buffer to receive, otherwise
-		# the packet will be dropped
-		try:
-			# (byte_str, sender_ip) = self.udp_lookup_socket.recvfrom( 4096
-			# ).decode()
-			# data is the byte string
+    ############################################################################
+    ###              listens for incoming file transfer requests
+    ############################################################################
+    def tcp_file_listener( self ):
+        """ Starts the file transfer listener logic
+        :return: n/a
+        """
+        print( "\t[TCP THREAD ACTIVE]\n" )
 
-			# FIXME: do not actually need the sender ip in the repsonse msg
+        while self.active:
+            try:
+                # have to accept() since we are using TCP
+                thread = threading.Thread( target = self.tcp_file_handler,
+                                           args =
+                                           self.tcp_file_transfer_socket.accept() )
+                thread.start()  # starts the thread, start() calls run()
 
-			(sender_ip, socket_port) = sender_address
+            except Exception as error:
+                print( "\tA unknown critical error occurred" )
+                print(
+                    "\t" + str( error ) + "\n" + traceback.format_exc() +
+                    "\n" )
 
-			action_code, sender_name, sender_ip, sender_lookup_port = \
-				self.read_lookup_response( sender_msg )
+    def tcp_file_handler( self, tcp_socket, incoming_ip ):
+        """ Handles the interactions from the tcp file transfer port
+        :param tcp_socket:                  FIXME:
+        :param incoming_ip:                 FIXME:
+        :return: n/a
+        """
+        try:
+            pass                # FIXME: needs to be implemented
+            byte_string = tcp_socket.recv( 4096 ).decode()
 
-			sock = socket( AF_INET, SOCK_DGRAM )
-			# binds to the port that the sender sent on
-			# sock.bind( ('', socket_port) )
-			msg = "TEST"
+        except Exception as error:
+            print( "\tA unknown critical error occurred" )
+            print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
 
-			if action_code == 0:
-				pass  # action_code 0 was created in case we need it for errors
-			elif action_code == 1:  # ACK
-				self.add_neighbor( sender_name, sender_ip, sender_lookup_port )
-				msg = self.name
-				self.print_acceptance_msg( sender_name, sender_ip,
-					sender_lookup_port )
-			elif action_code == 2:
-				pass
-			elif action_code == 3:
-				pass
-			elif action_code == 4:
-				pass
-			else:
-				pass
-			self.print_ports( sender_name, sender_lookup_port, socket_port,
-				sender_msg.decode() )
-			# currently, i think this means it gets sent on ephemeral port
-			sock.sendto( msg.encode(), sender_address )
-			sock.close()  # don't need to close with UDP?
-		except Exception as error:
-			print( "\n\tA unknown critical error occurred" )
-			print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
-		finally:
-			self.print_command_menu()
+    ############################################################################
+    ###                         status method
+    ############################################################################
 
-	############################################################################
-	###              listens for incoming file transfer requests
-	############################################################################
-	def tcp_file_listener( self ):
-		""" Starts the file transfer listener logic
-		:return: n/a
-		"""
-		print( "\t[TCP THREAD ACTIVE]\n" )
+    def status( self ):
+        files_str = "Files: " + self.directory + "\n"
+        peers_str = "Peers: \n"
 
-		while self.active:
-			try:
-				# have to accept() since we are using TCP
-				thread = threading.Thread( target = self.tcp_file_handler,
-					args = self.tcp_file_transfer_socket.accept() )
-				thread.start()  # starts the thread, start() calls run()
+        for peer_name, peer_data in self.neighbors.items():
+            peers_str += "\t" + peer_name + " " + peer_addr[ 0 ] + ":" \
+                         + str( peer_addr[ 1 ] ) + "\n"
 
-			except Exception as error:
-				print( "\tA unknown critical error occurred" )
-				print(
-					"\t" + str( error ) + "\n" + traceback.format_exc() +
-					"\n" )
+        for file, origin_peer in self.files.items():
+            files_str += "\t" + file + "\n"
 
-	def tcp_file_handler( self, tcp_socket, incoming_ip ):
-		""" Handles the interactions from the tcp file transfer port
-		:param tcp_socket:                  FIXME:
-		:param incoming_ip:                 FIXME:
-		:return: n/a
-		"""
-		try:
-			byte_string = tcp_socket.recv( 4096 ).decode()
+        print( peers_str )
+        print( files_str )
 
-		except Exception as error:
-			print( "\tA unknown critical error occurred" )
-			print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
+    ############################################################################
+    ###                          find methods
+    ############################################################################
+    def read_directory( self ):
+        """ Reads in this Peer's directory and adds each file to the File_Table
+        :return: n/a
+        """
+        dir_files = os.listdir( self.directory )
+        print( dir_files )
+        for file in dir_files:
+            self.files.add( file, self.directory, self.name )
 
-	############################################################################
-	###                         Mandatory methods
-	############################################################################
-	def status( self ):
-		files_str = "Files: " + self.directory + "\n"
-		peers_str = "Peers: \n"
+    def find_local( self, filename ):
+        self.read_directory()     # updates the file directory w/ local files
+        if self.files.__contains__( filename ):
+            return self.files.get( filename )   # (dir, peer_origin)
+        else:
+            flood_peers()
+            return
 
-		for peer_name, peer_addr in self.neighbors.items():
-			peers_str += "\t" + peer_name + " " + peer_addr[ 0 ] + ":" \
-						 + str(peer_addr[ 1 ]) + "\n"
+    def flood_peers( self, filename ):
+        for peer_name, peer_data in self.neighbors.items():
+            self.neighbors.increment_seq( peer_name )
+            message = Udp_Message( code = Codes.FIND, src_name = self.name,
+                                   src_ip = self.ip, src_port = self.port,
+                                   dest_name = peer_name, dest_ip =
+                                   peer_addr[ 0 ], dest_port = peer_addr[ 1 ],
+                                   file = filename)
+            message.send()
 
-		for file, origin_peer in self.files.items():
-			files_str += "\t" + file + "\n"
+    ############################################################################
+    ###                          get methods
+    ############################################################################
+    def get( self ):
+        pass            # part c, needs to be implemented
 
-		print( peers_str );
-		print( files_str )
+    def send_file( self, filename ):
+        if self.files.__contains__( filename ):
+            print( "File " + filename + " available on " + self.directory )
+            return self.files.get( filename )
+        self.flood_peers( filename )
 
-	def send_file( self, peer_name, peer_ip, peer_port, directory,
-			recv_peer_ip,
-			recv_peer_port ):
-		if recv_peer_ip is None:
-			recv_peer_ip = -1
-		if recv_peer_port is None:
-			recv_peer_port = -1
-		one = 1
+    def add_file( self, file, origin_peer ):
+        """ Adds the name of the file to this Peer's File_Table
+        :param file: the name of the file
+        :param origin_peer: the original origin of the file
+        :return: n/a
+        """
+        self.files.add( file, origin_peer )
 
-	def read_directory( self ):
-		""" Reads in this Peer's directory and adds each file to the File_Table
-		:return: n/a
-		"""
-		dir_files = os.listdir( self.directory )
-		print( dir_files )
-		for file in dir_files:
-			self.files.add( file, self.name )
+    def get_files( self ):
+        """ Returns the File_Table object
+        :return: the File_Table object
+        """
+        return self.files
 
-	def get_files( self ):
-		""" Returns the File_Table object
-		:return: the File_Table object
-		"""
-		return self.files
+    ############################################################################
+    ###                          quit methods
+    ############################################################################
+    def quit( self ):
+        # needs to send messages to neighbors and attempt to close threads
+        # safely
+        self.udp_lookup_socket.close()
+        self.tcp_file_transfer_socket.close()
+        sys.exit( 0 )
 
-	def add_file( self, file, origin_peer ):
-		""" Adds the name of the file to this Peer's File_Table
-		:param file: the name of the file
-		:param origin_peer: the original origin of the file
-		:return: n/a
-		"""
-		self.files.add( file, origin_peer )
+    ############################################################################
+    ###                       Utility methods
+    ############################################################################
+    def print_acceptance_msg( self, name, ip, port ):
+        print( "\n\n{0}: Accepting {1} {2}:{3}\n".format( self.name, name, ip,
+                                                          port ) )
 
-	############################################################################
-	###                       Utility methods
-	############################################################################
+    def print_connection_msg( self, name, ip, port ):
+        print( "{0}: Connected {1} {2}:{3}\n".format( self.name, name, ip,
+                                                      port ) )
 
-	# returns an encoded response -- note the null terminating character
-	def create_response( self, code, name, ip, port ):
-		""" Creates a new response message in the defined format
-		:param code: the action code corresponding to the desired action
-		:param name: the name of the Peer sending this response
-		:param ip: the ip of the Peer sending this response
-		:param port: the lookup port of the Peer sending this response
-		:return: a formatted string in the response format
-		"""
-		return "code={0} name={1} ip={2} port={3}\0".format( code, name, ip,
-			port )
+    # REMOVE ME: this is for testing
+    def print_ports( self, name, lookup, ephemeral, message ):
+        print( self.name + " received " + name + "'s response: "
+                                                 "\t\t\t\tFIXME: function is "
+                                                 "for testing only" )
+        print( "\t" + name + " lookup port: " + str( lookup ) )
+        print( "\t" + name + " ephemeral port: " + str( ephemeral ) )
+        print( "\t" + name + " message: " + message + "\n" )
 
-	def read_lookup_response( self, response_message ):
-		""" Parses the response string and returns the actual values
-		:param response_message: the encoded response message from the Peer
-		:return: a length 4 tuple (action_code, name, ip, port) from message
-		"""
-		msg = response_message.decode()
-		field_names = [ "code=", "name=", "ip=", "port=" ]
-		field_values = [ ]
-		i = 0
+    ############################################################################
+    ###                           UI methods
+    ############################################################################
+    def command_menu( self ):
+        """ Executes the command menu's logic
+        :return: n/a
+        """
+        while self.active:
+            self.print_command_menu()
+            command = str( input() )
+            print( "" )  # prints a blank line
 
-		# if this is true, then the data has to be incorrect
-		if len( msg ) <= 21:
-			raise Error( "Received message is incomplete or corrupted" )
+            if len( command ) <= 0:
+                print( "No command listed." )
+                continue
 
-		while i < 4 and msg.index( field_names[ i ] ) > -1:
-			# this should be more robust                        FIXME:
-			start = msg.index( field_names[ i ] ) + len( field_names[ i ] )
-			if i < 3:
-				end = msg.index( field_names[ i + 1 ], start )
-			else:
-				end = len( msg ) - 1
-			field_values.append( msg[ start:end ].strip() )
+            if command[ 0 ] == 's':
+                self.status()
+            elif command[ 0 ] == 'f':
+                self.find()
+            elif command[ 0 ] == 'g':
+                self.get()
+            elif command[ 0 ] == 'q':
+                print( "Peer terminated" )
+                self.active = False
+                time.sleep( 1 )  # delay to allow loops to finish and exit
+                # safely if possible
+                quit()
+                break
+            else:
+                print( "Unknown command" )
 
-			# if start >= len( msg ) or end < 0:
-			#     raise Error( "Received message is incomplete or corrupted" )
+    def print_command_menu( self ):
+        """ Prints the command menu UI
+        :return: n/a
+        """
+        print( "Your options:\n"
+               "\t1. [s]tatus\n"
+               "\t2. [f]ind <filename>\n"
+               "\t3. [g]et <filename> <peer IP> <peer port>\n"
+               "\t4. [q]uit\n"
+               "Your choice: ", end = "" )
 
-			i += 1
-		action_code = int( field_values[ 0 ] )
-		name = str( field_values[ 1 ] )
-		ip = str( field_values[ 2 ] )
-		port = int( field_values[ 3 ] )
-
-		return action_code, name, ip, port
-
-	def print_acceptance_msg( self, name, ip, port ):
-		print(
-			"\n\n{0}: Accepting {1} {2}:{3}\n".format( self.name, name, ip,
-				port ) )
-
-	def print_connection_msg( self, name, ip, port ):
-		print(
-			"{0}: Connected {1} {2}:{3}\n".format( self.name, name, ip,
-				port ) )
-
-	def quit( self ):
-		# needs to send messages to neighbors and attempt to close threads
-		# safely
-		self.udp_lookup_socket.close()
-		self.tcp_file_transfer_socket.close()
-		sys.exit( 0 )
-
-	# REMOVE ME: this is for testing
-	def print_ports( self, name, lookup, ephemeral, message ):
-		print( self.name + " received " + name + "'s response:" )
-		print( "\t" + name + " lookup port: " + str( lookup ) )
-		print( "\t" + name + " ephemeral port: " + str( ephemeral ) )
-		print( "\t" + name + " message: " + message  + "\n")
 
 ################################################################################
 ################################ main ##########################################
 ################################################################################
 if len( sys.argv ) - 1 == 4:  # first arg is the name of script
-	my_peer = Peer( sys.argv[ 1 ], sys.argv[ 2 ], int( sys.argv[ 3 ] ),
-		sys.argv[ 4 ] )
+    my_peer = Peer( sys.argv[ 1 ], sys.argv[ 2 ], int( sys.argv[ 3 ] ),
+                    sys.argv[ 4 ] )
 elif len( sys.argv ) - 1 == 6:  # first arg is the name of script
-	my_peer = Peer( sys.argv[ 1 ], sys.argv[ 2 ], int( sys.argv[ 3 ] ),
-		sys.argv[ 4 ], sys.argv[ 5 ], int( sys.argv[ 6 ] ) )
+    my_peer = Peer( sys.argv[ 1 ], sys.argv[ 2 ], int( sys.argv[ 3 ] ),
+                    sys.argv[ 4 ], sys.argv[ 5 ], int( sys.argv[ 6 ] ) )
 else:
-	sys.exit(
-		0 )
+    sys.exit(
+        0 )
 ################################################################################
 ############################## end main ########################################
 ###############################################################################
+
+    # def create_response( self, code, name, ip, port ):
+    #     """ Creates a new response message in the defined format
+    #     :param code: the action code corresponding to the desired action
+    #     :param name: the name of the Peer sending this response
+    #     :param ip: the ip of the Peer sending this response
+    #     :param port: the lookup port of the Peer sending this response
+    #     :return: a formatted string in the response format
+    #     """
+    #     return "code={0} name={1} ip={2} port={3}\0".format( code, name, ip,
+    #                                                          port )
+    #
+    # def read_lookup_response( self, response_message ):
+    #     """ Parses the response string and returns the actual values
+    #     :param response_message: the encoded response message from the Peer
+    #     :return: a length 4 tuple (action_code, name, ip, port) from message
+    #     """
+    #     msg = response_message.decode()
+    #     field_names = [ "code=", "name=", "ip=", "port=" ]
+    #     field_values = [ ]
+    #     i = 0
+    #
+    #     # if this is true, then the data has to be incorrect
+    #     if len( msg ) <= 21:
+    #         raise Error( "Received message is incomplete or corrupted" )
+    #
+    #     while i < 4 and msg.index( field_names[ i ] ) > -1:
+    #         # this should be more robust                        FIXME:
+    #         start = msg.index( field_names[ i ] ) + len( field_names[ i ] )
+    #         if i < 3:
+    #             end = msg.index( field_names[ i + 1 ], start )
+    #         else:
+    #             end = len( msg ) - 1
+    #         field_values.append( msg[ start:end ].strip() )
+    #
+    #         # if start >= len( msg ) or end < 0:
+    #         #     raise Error( "Received message is incomplete or corrupted" )
+    #
+    #         i += 1
+    #     action_code = int( field_values[ 0 ] )
+    #     name = str( field_values[ 1 ] )
+    #     ip = str( field_values[ 2 ] )
+    #     port = int( field_values[ 3 ] )
+    #
+    #     return action_code, name, ip, port
