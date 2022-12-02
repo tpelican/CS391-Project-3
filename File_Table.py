@@ -9,11 +9,11 @@ class File_Table( dict ):
         self = dict()
 
     # FIXME: may also want to include the directory path
-    def add( self, file, direct, origin_peer ):
+    def add( self, file, direct, dir_path ):
         """ Adds a new File key-value pair
         :param file: the name of the file
         :param direct: the directory of the file
-        :param origin_peer: the peer this file is from
+        :param dir_path: the peer this file is from
         :return: m/a
         """
-        self[ file ] = direct, origin_peer
+        self[ file ] = direct, dir_path

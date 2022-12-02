@@ -19,6 +19,6 @@ class Neighbor_Table( dict ):
         self[ peer_name ] = peer_ip, peer_port, send_base
 
     def increment_seq( self, peer_name ):
-        (peer_ip, peer_port, send_base) = self.peer[ peer_name ]
+        (peer_ip, peer_port, send_base) = self[ peer_name ]
         send_base += 1
-        self.peer[ peer_name ] = (peer_ip, peer_port, send_base)
+        self[ peer_name ] = (peer_ip, peer_port, send_base)

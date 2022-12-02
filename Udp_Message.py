@@ -34,6 +34,8 @@ class Udp_Message:
                 return Codes.PEER
             case 'Codes.FIND':
                 return Codes.FIND
+            case 'Codes.FOUND':
+                return Codes.FOUND
             case 'Codes.HERE':
                 return Codes.HERE
             case 'Codes.GET':
@@ -92,10 +94,12 @@ class Udp_Message:
         response_str = ""
         for (attribute, value) in self.__dict__.items():
             if attribute == 'code' or attribute == 'ftp' or \
-                attribute == 'src_port' or attribute == 'dest_port':
+                attribute == 'src_port' or attribute == 'dest_port'\
+                or attribute == 'seq':
 
                 response_str += attribute + "={" + str( value ) + "}"
-            else:
+            elif attribute != 'self' and attribute != 'message' and attribute \
+                    != 'response_msg':
                 response_str += attribute + "={" + value + "}"
 
         response_str += "\0"
@@ -104,15 +108,21 @@ class Udp_Message:
 
     def decodify( self ):
         response = self.response_msg
-        keys = [ "self", "code", "src_name", "src_ip",
+        keys = [ "code", "src_name", "src_ip",
                          "src_port", "dest_name", "dest_ip", "dest_port",
                          "file", "seq", "ftp" ]
         i = 0
         start = 0
         index = -1
+        
+        print( response )
+
         while i < len( keys ):
             if keys[ i ] in response:
-                index = response.index( keys[ i ] + "={", start )
+                
+                # print( keys[ i ] )
+
+                index = response.index( keys[ i ] + "={", 0 )
 
             if index > -1:
                 start = index + len( keys[ i ] + "={" )
@@ -120,9 +130,11 @@ class Udp_Message:
                 value = response[ start:end ].strip()
 
                 if value == 'code' or value == 'ftp' or \
-                        value == 'src_port' or value == 'dest_port':
+                        value == 'src_port' or value == 'dest_port'\
+                        or value == 'seq':
                     setattr( self, keys[ i ], int( value ) )
-                else:
+                elif value != 'self' and value != 'message' \
+                        and value != 'response_msg':
                     setattr( self, keys[ i ], value )
 
                 start = end + 1
@@ -141,3 +153,6 @@ class Udp_Message:
         # udp_ephemeral.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
         udp_ephemeral.sendto( self.codify(), sender_address )
         udp_ephemeral.close()
+
+    def to_string( self ):
+        return self.message

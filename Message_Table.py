@@ -14,4 +14,4 @@ class Message_Table( dict ):
         :param peer_seq: the sequence number of the request
         :return: n/a
         """
-        self[ (peer_name, peer_seq) ] = (peer_name, peer_seq)
+        self[ peer_name, peer_seq ] = peer_name, peer_seq

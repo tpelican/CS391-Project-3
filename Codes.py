@@ -9,6 +9,7 @@ class Codes( Enum ):
     ERROR = 0
     PEER = 1
     FIND = 2
-    HERE = 3
-    GET = 4
-    QUIT = 5
+    FOUND = 3
+    HERE = 4
+    GET = 5
+    QUIT = 6

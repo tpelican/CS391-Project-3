@@ -105,7 +105,7 @@ class Peer:
             peer_name = response.get_name()
 
             # FIXME: remove this -- for testing
-            self.print_ports( self.name, self.port, response.get_name(),
+            self.print_ports( self.name, peer_name, response.get_name(),
                               response.get_msg_content() )
 
             # add the neighbor response to the neighbors dictionary
@@ -157,12 +157,17 @@ class Peer:
             sender_msg = Udp_Message( response_msg = request.decode() )
             action_code = sender_msg.action_code()
 
+            print( "Received:  " + sender_msg.to_string() )
+
             if action_code is Codes.ERROR:
                 pass
             elif action_code is Codes.PEER:             # ACK
                 self.peer_request_handler( sender_msg, addr )
             elif action_code is Codes.FIND:
                 self.find_request_handler( sender_msg, addr )
+            elif action_code is Codes.FOUND:
+                print( "Sender has the file that you request: " )
+                print( sender_msg )
             elif action_code is Codes.HERE:
                 pass
             elif action_code is Codes.GET:
@@ -192,23 +197,37 @@ class Peer:
         response.send()
 
     def find_request_handler( self, sender_msg, addr ):
-        if self.file_requests.__contains__( ( sender_msg.get_name(),
-                                              sender_msg.seq ) ):
-            print( "File request {0} received from {1}\n".format(
-                sender_msg.file, sender_msg.get_name() ) )
+        print( "File request {0} received from {1}".format(
+            sender_msg.file, sender_msg.get_name() ) )
+
+        if self.file_requests.__contains__( (sender_msg.get_name(),
+                                              sender_msg.seq) ):
             print("Duplicate; discarding.")
             return
 
-        response = Udp_Message( code = Codes.PEER, src_name = self.name,
-                                src_ip = self.ip, src_port = self.port,
-                                dest_ip = addr[ 0 ],
-                                dest_port = addr[ 1 ] )
+        self.file_requests.add( sender_msg.get_name(),
+                                sender_msg.seq )
 
-        self.read_directory()       # gets the most current directory
+
         if self.files.__contains__( sender_msg.file ):
-            pass
+            dir_path, origin = self.files.get( sender_msg.file )
+            print( "File " + sender_msg.file + " available on " +  dir_path )
+
+            response = Udp_Message( code = Codes.FOUND, src_name = self.name,
+                                    src_ip = self.ip, src_port = self.port,
+                                    dest_ip = sender_msg.get_src_ip(),
+                                    dest_port = sender_msg.get_src_port(),
+                                    ftp = self.file_transfer_port )
+            response.send()
         else:
-            self.flood_peers( sender_msg.get_filename() )
+            print("I made it to 225")
+            self.forward_file_request( sender_msg.file, sender_msg )
+
+        # self.read_directory()       # gets the most current directory
+        # if self.files.__contains__( sender_msg.file ):
+        #     pass
+        # else:
+        #     self.flood_peers( sender_msg.get_filename() )
 
 
     ############################################################################
@@ -278,35 +297,53 @@ class Peer:
         for file in dir_files:
             self.files.add( file, self.directory, self.name )
 
-    def find_local( self, filename ):
+    def find( self, filename, forward_request = None ):
         self.read_directory()     # updates the file directory w/ local files
-        if self.files.__contains__( filename ):
-            return self.files.get( filename )   # (dir, peer_origin)
-        else:
-            flood_peers()
-            return
+        
+        # print("'" + filename + "'")     # FIXME 
 
-    def flood_peers( self, filename ):
+        if self.files.__contains__( filename ):
+            dir_path, origin = self.files.get( filename )
+            print( "File " + filename + " available on " + dir_path )
+            self.files.get( filename )   # (dir, peer_origin)
+        elif not forward_request is None:
+            print( "File discovery in progress: Flooding" )
+            self.flood_peers( filename )
+        else:
+            print("Flooding neighbors:")
+            self.flood_peers( filename, forward_msg = forward_request )
+
+    # sends back the original file request
+    def forward_file_request( self, filename, message ):
+        self.flood_peers( filename, forward_msg = message )
+
+    def flood_peers( self, filename, forward_msg = None ):
         for peer_name, peer_data in self.neighbors.items():
-            self.neighbors.increment_seq( peer_name )
-            message = Udp_Message( code = Codes.FIND, src_name = self.name,
-                                   src_ip = self.ip, src_port = self.port,
-                                   dest_name = peer_name, dest_ip =
-                                   peer_addr[ 0 ], dest_port = peer_addr[ 1 ],
-                                   file = filename)
+            # if it's the same peer that it just got the message from, continue
+            if forward_msg is not None and forward_msg.src_name == peer_name:
+                continue
+            
+            print( "\tsending to " + peer_name )
+            if forward_msg is None:
+                self.neighbors.increment_seq( peer_name )
+                peer_ip, peer_port, send_base = peer_data
+                message = Udp_Message( code = Codes.FIND, src_name = self.name,
+                                       src_ip = self.ip, src_port = self.port,
+                                       dest_name = peer_name, dest_ip = 
+                                       peer_ip, 
+                                       dest_port = peer_port, seq = send_base,
+                                       file = filename)
+            else:
+                message = forward_msg
             message.send()
+
+
 
     ############################################################################
     ###                          get methods
     ############################################################################
     def get( self ):
         pass            # part c, needs to be implemented
-
-    def send_file( self, filename ):
-        if self.files.__contains__( filename ):
-            print( "File " + filename + " available on " + self.directory )
-            return self.files.get( filename )
-        self.flood_peers( filename )
 
     def add_file( self, file, origin_peer ):
         """ Adds the name of the file to this Peer's File_Table
@@ -362,6 +399,8 @@ class Peer:
         while self.active:
             self.print_command_menu()
             command = str( input() )
+            # FIXME: need to parse the command string
+
             print( "" )  # prints a blank line
 
             if len( command ) <= 0:
@@ -371,7 +410,9 @@ class Peer:
             if command[ 0 ] == 's':
                 self.status()
             elif command[ 0 ] == 'f':
-                self.find()
+                print("Enter file: ")
+                file = str( input() )       # FIXME: needs to parse command str
+                self.find( file )
             elif command[ 0 ] == 'g':
                 self.get()
             elif command[ 0 ] == 'q':
@@ -411,7 +452,6 @@ else:
 ################################################################################
 ############################## end main ########################################
 ###############################################################################
-
     # def create_response( self, code, name, ip, port ):
     #     """ Creates a new response message in the defined format
     #     :param code: the action code corresponding to the desired action
