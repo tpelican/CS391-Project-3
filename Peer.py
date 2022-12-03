@@ -156,7 +156,7 @@ class Peer:
             elif action is Codes.FOUND:
                 # this is what gets printed when the requester gets back a found
                 # message
-                print( "\nFile is available at peer => ({0}, {1}, {2}, {3}"
+                print( "File is available at peer => ({0}, {1}, {2}, {3}"
                        ")\n".format( sender_msg.get_name(),
                                      sender_msg.get_src_ip(),
                                      sender_msg.get_src_port(),
@@ -205,7 +205,7 @@ class Peer:
 
             if action is Codes.ERROR or (
                     Codes.GET and not self.files.__contains__( filename )):
-                print( "\nError: no such file\n" )
+                print( "Error: no such file\n" )
                 self.send_error( sender_socket, request )
 
             elif action is Codes.GET:
@@ -219,7 +219,7 @@ class Peer:
             print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
 
     def send_file( self, sender_socket, request ):
-        print( "Received request for {0} from {1}".format(
+        print( "\nReceived request for {0} from {1}".format(
             request.get_filename(), request.get_name() ) )
 
         # preface message containing file information
@@ -242,7 +242,7 @@ class Peer:
         """
         file = open( os.path.join( self.directory,
                                    request.get_filename() ), "wb" )
-                                                         # wb =  write bytes
+        # wb =  write bytes
         try:
             data = connect_socket.recv( 1024 )
             while data:  # loop executes until there is no more data left
@@ -251,7 +251,7 @@ class Peer:
 
             self.files.add( request.get_filename(), self.directory,
                             request.get_name() )
-            print( "\nFile received\n" )
+            print( "File received\n" )
         except Exception as error:
             print( "\tAn unknown critical error occurred" )
             print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
@@ -288,6 +288,7 @@ class Peer:
                 print( "\nNo peer with address ({0}, {1}) was found.".format(
                     target_ip, target_ftp ) )
                 return
+            print( "\nRequesting " + filename + " from " + target_name )
             connect_socket.connect( (target_ip, target_ftp) )
 
             # sends tcp msg to the ftp port of the target using the new socket
@@ -376,18 +377,18 @@ class Peer:
         :param sender_msg: the FIND message that was sent from the peer
         :return: n/a
         """
-        print( "File request {0} received from {1}".format(
+        print( "\nFile request {0} received from {1}".format(
             sender_msg.file, sender_msg.get_name() ) )
 
         if self.file_requests.__contains__(
                 (sender_msg.get_name(), sender_msg.seq) ):
-            print( "\nDuplicate; discarding." )
+            print( "Duplicate; discarding." )
             return
         self.file_requests.add( sender_msg.get_name(), sender_msg.seq )
 
         if self.files.__contains__( sender_msg.file ):
             dir_path, origin = self.files.get( sender_msg.file )
-            print( "\nFile " + sender_msg.file + " available on "
+            print( "File " + sender_msg.file + " available on "
                    + dir_path + "" )
 
             response = Udp_Message( code = Codes.FOUND, src_name = self.name,
@@ -416,7 +417,7 @@ class Peer:
             print( "\nFile discovery in progress: Flooding" )
             self.flood_peers( filename )
         else:  # otherwise, flood all peers
-            print( "\nFlooding to neighbors:" )
+            print( "Flooding to neighbors:" )
             self.flood_peers( filename, forward_msg = forward_request )
 
     def forward_file_request( self, filename, message ):
@@ -425,6 +426,7 @@ class Peer:
         :param message: the UDP message to forward
         :return: n/a
         """
+        print( "Flooding to neighbors:" )
         self.flood_peers( filename, forward_msg = message )
 
     def flood_peers( self, filename, forward_msg = None ):
@@ -438,18 +440,25 @@ class Peer:
             if forward_msg is not None and forward_msg.src_name == peer_name:
                 continue
             print( "\tsending to " + peer_name )
+            peer_ip, peer_port, send_base = peer_data
 
             if forward_msg is None:
                 self.neighbors.increment_seq( peer_name )
-                peer_ip, peer_port, send_base = peer_data
+
                 message = Udp_Message( code = Codes.FIND, src_name = self.name,
                                        src_ip = self.ip, src_port = self.port,
                                        dest_name = peer_name, dest_ip = peer_ip,
                                        dest_port = peer_port, seq = send_base,
                                        file = filename )
             else:
-                message = forward_msg
+                message = Udp_Message( code = Codes.FIND, src_name = self.name,
+                                       src_ip = forward_msg.get_src_ip(),
+                                       src_port = forward_msg.get_src_port(),
+                                       dest_name = peer_name, dest_ip = peer_ip,
+                                       dest_port = peer_port, seq = send_base,
+                                       file = filename )
             message.send()
+        print( "" )
 
     ############################################################################
     ###                          quit methods
@@ -469,11 +478,7 @@ class Peer:
                                    dest_name = peer_name, dest_ip = peer_ip,
                                    dest_port = peer_port )
             message.send()
-        self.udp_lookup_socket.close()
-        self.tcp_file_transfer_socket.close()
-
         print( "Quitting" )
-        sys.exit( 0 )
 
     def delete_peer( self, peer_name ):
         """ Removes the peer that quit the network
@@ -493,7 +498,7 @@ class Peer:
         :param port: the port of the peer
         :return: n/a
         """
-        print( "\n\n{0}: Accepting {1} {2}:{3}\n".format(
+        print( "\n{0}: Accepting {1} {2}:{3}".format(
             self.name, name, ip, port ) )
 
     def print_connection_msg( self, name, ip, port ):
@@ -519,25 +524,46 @@ class Peer:
             command = args[ 0 ]
 
             if len( command ) <= 0:
-                print( "" )
                 continue
 
             if command[ 0 ] == 's' or command[ 0 ] == '1' \
                     or "status" in command:
                 self.status()
-            elif (command[ 0 ] == 'f' or command[ 0 ] == '2'
-                  or "find" in command) and len( args ) > 1:
-                self.find( args[ 1 ] )
-            elif (command[ 0 ] == 'g' or command[ 0 ] == '3'
-                  or "get" in command) and len( args ) > 3:
-                self.get( args[ 1 ], args[ 2 ], int( args[ 3 ] ) )
+            elif command[ 0 ] == 'f' or command[ 0 ] == '2' or "find" in \
+                    command:
+                if command[ 0 ] == '2':
+                    self.find_prompt()
+                elif len( args ) > 1:
+                    self.find( args[ 1 ] )
+            elif command[ 0 ] == 'g' or command[ 0 ] == '3' or "get" in command:
+                if command[ 0 ] == '3':
+                    self.get_prompt()
+                elif len( args ) > 3:
+                    self.get( args[ 1 ], args[ 2 ], int( args[ 3 ] ) )
             elif command[ 0 ] == 'q' or command[ 0 ] == '4' \
                     or "quit" in command:
                 self.quit()
+                sys.exit( 0 )
             else:
-                print( "Unknown command" )
+                print( "'" + command[ 0 ] + "' not recognized" )
 
             time.sleep( 1 )
+
+    def find_prompt( self ):
+        """ Explicitly prompts for find arguments
+        :return: n/a
+        """
+        file = input( "Filename: " )
+        self.find( file )
+
+    def get_prompt( self ):
+        """ Explicitly prompts for get arguments
+        :return: n/a
+        """
+        file = input( "Filename: " )
+        target_ip = input( "Target Peer IP: " )
+        target_port = int( input( "Target FTP: " ) )
+        self.get( file, target_ip, target_port )
 
     def print_command_menu( self ):
         """ Prints the command menu UI
@@ -549,7 +575,7 @@ class Peer:
                "\t3. [g]et <filename> <target-peer-ip> "
                "<target-file-transfer-port>\n"
                "\t4. [q]uit\n"
-               "Your choice: ", end = "" )
+               "Your choice: " )
 
 
 ################################################################################
