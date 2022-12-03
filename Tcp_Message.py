@@ -25,14 +25,16 @@ class Tcp_Message( Message ):
         """
         super().__init__( kwargs = kwargs )
             
-    def send_file( self, tcp_socket ):
+    def send_file( self, tcp_socket, dir_path ):
         """ Sends a file over a TCP connection
-        :param tcp_socket: 
+        :param dir_path: the path to the file
+        :param tcp_socket: the socket that the file is being sent on
         :return: n/a
         """
         if self.file is None:
             return
-        file = open( self.file, "rb" )  # rb = read binary
+        file = open( os.path.join( dir_path, self.file ), "rb" )  
+                                                        # rb = read  binary
         binary_file_data = file.read( 1024 )  # send 1 byte
 
         while binary_file_data:

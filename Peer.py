@@ -14,6 +14,7 @@ from Udp_Message import Udp_Message
 from Tcp_Message import Tcp_Message
 from Codes import Codes
 
+
 ################################################################################
 ################################################################################
 # TODO: ========================================================================
@@ -231,7 +232,7 @@ class Peer:
         # wait to receive READY from the requesting peer
         sender_socket.recv( 2048 ).decode()
 
-        response.send_file( sender_socket )
+        response.send_file( sender_socket, self.directory )
 
     def receive_file( self, request, connect_socket ):
         """ Receives a file being sent from the tcp socket connect_socket
@@ -239,7 +240,9 @@ class Peer:
         :param connect_socket: the socket that is being used
         :return: n/a
         """
-        file = open( request.get_filename(), "wb" )  # wb = write bytes
+        file = open( os.path.join( self.directory,
+                                   request.get_filename() ), "wb" )
+                                                         # wb =  write bytes
         try:
             data = connect_socket.recv( 1024 )
             while data:  # loop executes until there is no more data left
@@ -248,7 +251,7 @@ class Peer:
 
             self.files.add( request.get_filename(), self.directory,
                             request.get_name() )
-            print("\nFile received\n")
+            print( "\nFile received\n" )
         except Exception as error:
             print( "\tAn unknown critical error occurred" )
             print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
