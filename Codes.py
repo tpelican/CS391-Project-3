@@ -1,15 +1,15 @@
 from enum import Enum
 
-################################################################################
-###           Represent the basic codes used for the exchange of messages
-################################################################################
-# FIXME: i'm not sure, but I think there might need to be more than just these
-# for example, maybe have a ACK_PEER_#  or something
+# Created as part of CS391 Project 3
+# Professor: Dr. George Thomas
+# date: 11/29/2022
 class Codes( Enum ):
-    ERROR = 0
-    PEER = 1
-    FIND = 2
-    FOUND = 3
-    HERE = 4
-    GET = 5
-    QUIT = 6
+    """ Represents the various codes used in the P2P messages """
+    ERROR = 0       
+    PEER = 1        # peer request
+    FIND = 2        # find file request
+    FOUND = 3       # found file
+    GET = 4         # get (download) file request
+    READY = 5       # ready to download file
+    SEND = 6        # sending file
+    QUIT = 7

@@ -1,158 +1,33 @@
-import threading
-import traceback
 import sys, time, os
-import Message_Table, Neighbor_Table, File_Table
-import Udp_Message, Codes
 from socket import *
-from Message_Table import Message_Table
-from Neighbor_Table import Neighbor_Table
-from File_Table import File_Table
-from Udp_Message import Udp_Message
-from Codes import Codes
-from os.path import isfile, join
-from datetime import datetime
-from enum import Enum
+from Message import Message
 
-################################################################################
-###          Class for representing and working with UDP messages
-################################################################################
-class Udp_Message:
-
-    def __init__( self, **kwargs ):
-        keys = { 'self', 'code', 'src_name', 'src_ip',
-                         'src_port', 'dest_name', 'dest_ip', 'dest_port',
-                         'file', 'seq', 'ftp', 'response_msg' }
-        self.message = ""
-        self.__dict__.update( (k, v) for k, v in kwargs.items() if k in keys )
-
-        if self.__dict__.__contains__('response_msg'):
-            self.decodify()
-
-    def action_code( self ):
-        match self.code:
-            case 'Codes.PEER':
-                return Codes.PEER
-            case 'Codes.FIND':
-                return Codes.FIND
-            case 'Codes.FOUND':
-                return Codes.FOUND
-            case 'Codes.HERE':
-                return Codes.HERE
-            case 'Codes.GET':
-                return Codes.GET
-            case 'Codes.QUIT':
-                return Codes.QUIT
-            case _:
-                return Codes.ERROR
-
-    def get_name( self ):
-        return self.src_name
-
-    def get_src_ip( self ):
-        return self.src_ip
-
-    def get_src_port( self ):
-        if self.__dict__.__contains__( 'src_port' ):
-            return int( self.src_port )
-
-    def get_dest_ip( self ):
-        return self.dest_ip
-
-    def get_dest_port( self ):
-        if self.__dict__.__contains__( 'dest_port' ):
-            return int( self.dest_port )
-
-    def get_filename( self ):
-        return self.file
-
-    def get_seq_num( self ):
-        return self.seq
-
-    def get_ftp( self ):
-        if self.__dict__.__contains__( 'ftp' ):
-            return int( self.ftp )
-
-    def get_msg_content( self ):
-        return self.message
+# Created as part of CS391 Project 3
+# Professor: Dr. George Thomas
+# date: 11/29/2022
+class Udp_Message( Message ):
+    """ Represents a UDP message """
+    def __init_subclass__( cls, **kwargs ):
+        """ Constructor for the UDP message object
+        :param kwargs: takes in a variable number of arguments regarding the
+        details of this message object
+        """
+        super().__init__( kwargs = kwargs )
 
     def send( self, accept_reply = False ):
+        """ Sends a UDP message out on an ephemeral port
+        :param accept_reply: whether to accept an immediate reply
+        :return: the replied UDP if accept_reply is true, else n/a
+        """
         try:
             udp_ephemeral = socket( AF_INET, SOCK_DGRAM )
             udp_ephemeral.sendto( self.codify(),
-                                  (self.dest_ip, self.get_dest_port()) )
-
+                                  (self.get_dest_ip(), self.get_dest_port()) )
             if accept_reply is True:
                 response, addr = udp_ephemeral.recvfrom( 2048 )
                 return Udp_Message( response_msg = response.decode() )
 
             udp_ephemeral.close()
         except Exception as error:
-            print( "\tA unknown critical error occurred" )
+            print( "\tAn unknown critical error occurred" )
             print( "\t" + str( error ) + "\n" + traceback.format_exc() + "\n" )
-
-    def codify( self ):
-        response_str = ""
-        for (attribute, value) in self.__dict__.items():
-            if attribute == 'code' or attribute == 'ftp' or \
-                attribute == 'src_port' or attribute == 'dest_port'\
-                or attribute == 'seq':
-
-                response_str += attribute + "={" + str( value ) + "}"
-            elif attribute != 'self' and attribute != 'message' and attribute \
-                    != 'response_msg':
-                response_str += attribute + "={" + value + "}"
-
-        response_str += "\0"
-        self.message = response_str
-        return response_str.encode()
-
-    def decodify( self ):
-        response = self.response_msg
-        keys = [ "code", "src_name", "src_ip",
-                         "src_port", "dest_name", "dest_ip", "dest_port",
-                         "file", "seq", "ftp" ]
-        i = 0
-        start = 0
-        index = -1
-        
-        print( response )
-
-        while i < len( keys ):
-            if keys[ i ] in response:
-                
-                # print( keys[ i ] )
-
-                index = response.index( keys[ i ] + "={", 0 )
-
-            if index > -1:
-                start = index + len( keys[ i ] + "={" )
-                end = response.index( "}", start )
-                value = response[ start:end ].strip()
-
-                if value == 'code' or value == 'ftp' or \
-                        value == 'src_port' or value == 'dest_port'\
-                        or value == 'seq':
-                    setattr( self, keys[ i ], int( value ) )
-                elif value != 'self' and value != 'message' \
-                        and value != 'response_msg':
-                    setattr( self, keys[ i ], value )
-
-                start = end + 1
-
-            index = -1
-            i += 1
-
-        return self
-
-    # I tried making a method like this, but it didn't quite pan out the way
-    # I wanted it to. I'm leaving it here for now in case I decide to come
-    # back to it                        FIXME:
-    def reply( self, sender_address ):
-        print( "made it to the reply " )
-        udp_ephemeral = socket( AF_INET, SOCK_DGRAM )
-        # udp_ephemeral.setsockopt( SOL_SOCKET, SO_REUSEADDR, 1 )
-        udp_ephemeral.sendto( self.codify(), sender_address )
-        udp_ephemeral.close()
-
-    def to_string( self ):
-        return self.message
