@@ -4,9 +4,9 @@ from Message import Message
 
 # Created as part of CS391 Project 3
 # Professor: Dr. George Thomas
-# date: 11/29/2022
+# date: 11/28/2022
 class Udp_Message( Message ):
-    """ Represents a UDP message """
+    """ Represents a UDP (datagram) message """
     def __init_subclass__( cls, **kwargs ):
         """ Constructor for the UDP message object
         :param kwargs: takes in a variable number of arguments regarding the

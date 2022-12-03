@@ -1,6 +1,6 @@
-################################################################################
-###                  	  Lookup_Requests Table
-################################################################################
+# Created as part of CS391 Project 3
+# Professor: Dr. George Thomas
+# date: 11/27/2022
 class Message_Table( dict ):
     def __init__( self ):
         """ Creates a new Neighbor_Table dictionary

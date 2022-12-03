@@ -1,6 +1,6 @@
-################################################################################
-###                  		file table class
-################################################################################
+# Created as part of CS391 Project 3
+# Professor: Dr. George Thomas
+# date: 11/27/2022
 class File_Table( dict ):
     def __init__( self ):
         """ Creates a new File_Table dictionary
@@ -8,7 +8,6 @@ class File_Table( dict ):
         super().__init__()
         self = dict()
 
-    # FIXME: may also want to include the directory path
     def add( self, file, dir_path, origin_peer ):
         """ Adds a new File key-value pair
         :param file: the name of the file

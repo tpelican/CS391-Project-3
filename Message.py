@@ -5,7 +5,7 @@ from abc import ABC
 
 # Created as part of CS391 Project 3
 # Professor: Dr. George Thomas
-# date: 11/29/2022
+# date: 11/28/2022
 class Message( ABC ):
     """ Represents a message over a transport protocol """
 
@@ -114,9 +114,9 @@ class Message( ABC ):
                 response_str += attribute + "={" + str( value ) + "}"
             else:
                 response_str += attribute + "={" + value + "}"
-
         response_str += "\0"
         self.message = response_str
+        
         return response_str.encode()
 
 
@@ -128,8 +128,6 @@ class Message( ABC ):
         keys = self.keys
         i = 0
         index = -1
-
-        print( response )               # FIXME:
 
         while i < len( keys ):
             if keys[ i ] in response:
